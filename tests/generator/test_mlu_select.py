@@ -162,7 +162,7 @@ def test_union_selects_exploration_not_labeled(tmp_path, monkeypatch):
     # union produced something but bounded by pool size
     assert 1 <= len(candidates) <= 10
     # report has per-model per-system records for the magnetic group only
-    assert report["groups"] == {"magnetic": 2}  # init system + modd system
+    assert report["groups"] == {"magnetic": 2, "non_magnetic": 1}  # init + modd | iter0 data.001
     assert len(report["models"]) == 2  # one record per committee model
 
 
