@@ -78,9 +78,15 @@ def load_system(path, name=None, magnetic=False, source="init", origin=None):
         if os.path.isfile(type_raw)
         else np.zeros(natoms, dtype=int)
     )
+    type_map_raw = os.path.join(path, "type_map.raw")
+    type_map = None
+    if os.path.isfile(type_map_raw):
+        with open(type_map_raw) as fp:
+            type_map = [ln.strip() for ln in fp if ln.strip()]
     return {
         "name": name or os.path.basename(os.path.normpath(path)),
         "path": path,
+        "type_map": type_map,
         "natoms": natoms,
         "atom_types": atom_types,
         "box": box,
