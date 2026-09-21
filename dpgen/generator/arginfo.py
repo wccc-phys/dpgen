@@ -147,6 +147,16 @@ def training_args_dp() -> list[Argument]:
         <https://docs.deepmodeling.com/projects/deepmd/>`_.
         """
     )
+    doc_mlu_training_param = textwrap.dedent(
+        """\
+        MLU (U-predictor) training template, e.g. fitting_net.type='mlu' and
+        loss.type='mlu'. When set, each iteration additionally trains an MLU
+        model in 00.train/task.mlu on the subset of training systems that
+        carry uparam.npy; post_train exposes the frozen model as
+        00.train/mlu_model* which exploration (mlu_model keyword) and the
+        labeling U_init prediction pick up automatically.
+        """
+    )
     doc_dp_train_skip_neighbor_stat = "Append --skip-neighbor-stat flag to dp train."
     doc_dp_compress = "Use dp compress to compress the model."
     doc_training_reuse_iter = "The minimal index of iteration that continues training models from old models of last iteration."
@@ -206,6 +216,12 @@ def training_args_dp() -> list[Argument]:
             [dict, list[dict]],
             optional=False,
             doc=doc_default_training_param,
+        ),
+        Argument(
+            "mlu_training_param",
+            dict,
+            optional=True,
+            doc=doc_mlu_training_param,
         ),
         Argument(
             "dp_train_skip_neighbor_stat",

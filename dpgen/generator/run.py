@@ -107,6 +107,17 @@ from .arginfo import run_jdata_arginfo
 template_name = "template"
 train_name = "00.train"
 train_task_fmt = "%03d"
+mlu_train_task_fmt = "mlu"
+
+
+def _system_has_uparam(sys_path):
+    """True when any set.*/ under a DeepMD system directory has uparam.npy."""
+    for setdir in sorted(glob.glob(os.path.join(sys_path, "set.*"))):
+        if os.path.isfile(os.path.join(setdir, "uparam.npy")):
+            return True
+    return False
+
+
 train_tmpl_path = os.path.join(template_name, train_name)
 default_train_input_file = "input.json"
 training_complete_file = ".dpgen_train_complete"
@@ -900,6 +911,12 @@ def copy_model(numb_model, prv_iter_index, cur_iter_index, suffix=".pb"):
             "graph.%03d%s" % (ii, suffix),  # noqa: UP031
         )
         os.chdir(cwd)
+    # carry the frozen MLU model over as well when the previous iteration has one
+    prv_mlu = os.path.join(prv_train_path, f"mlu_model{suffix}")
+    if os.path.isfile(prv_mlu):
+        os.chdir(cur_train_path)
+        os.symlink(os.path.relpath(prv_mlu), f"mlu_model{suffix}")
+        os.chdir(cwd)
     with open(os.path.join(cur_train_path, "copied"), "w") as fp:
         None
 
@@ -1451,6 +1468,61 @@ def make_train_dp(iter_index, jdata, mdata):
     if jdata.get("one_h5", False):
         convert_training_data_to_hdf5(input_files, os.path.join(work_path, "data.hdf5"))
 
+    _make_train_mlu_task(iter_index, jdata, work_path, init_data_sys, init_batch_size,
+                         use_ele_temp)
+
+
+def _make_train_mlu_task(iter_index, jdata, work_path, init_data_sys, init_batch_size,
+                         use_ele_temp):
+    """Create the MLU (U-predictor) training task when uparam data exists.
+
+    The task lives in ``00.train/task.mlu`` and trains on the subset of the
+    training systems that carry ``uparam.npy`` (magnetic labeling output).
+    From the first generation with such data, every later iteration retrains
+    MLU on the accumulated uparam datasets; ``post_train`` exposes the frozen
+    model as ``00.train/mlu_model*`` for exploration and U_init prediction.
+    """
+    if not jdata.get("mlu_training_param"):
+        return
+    mlu_task = os.path.join(work_path, mlu_train_task_fmt)
+    if os.path.isdir(mlu_task):
+        return
+    # resolve training systems (task-dir relative, e.g. ../data.init/x)
+    probe_task = os.path.join(work_path, train_task_fmt % 0)
+    mlu_sys, mlu_batch = [], []
+    for sys_str, batch in zip(init_data_sys, init_batch_size):  # noqa: B905
+        abs_sys = os.path.normpath(os.path.join(probe_task, sys_str))
+        if _system_has_uparam(abs_sys):
+            mlu_sys.append(sys_str)
+            mlu_batch.append(batch)
+    if not mlu_sys:
+        dlog.info(
+            "mlu_training_param set but no training system carries uparam.npy; "
+            "skipping MLU task this iteration"
+        )
+        return
+    mlu_param = copy.deepcopy(jdata["mlu_training_param"])
+    training = mlu_param.setdefault("training", {})
+    tdata = training.setdefault("training_data", {})
+    tdata["systems"] = mlu_sys
+    tdata["batch_size"] = mlu_batch
+    _set_ele_temp_params(mlu_param, use_ele_temp)
+    model = mlu_param.get("model", {})
+    descriptor = model.get("descriptor")
+    if isinstance(descriptor, dict) and "seed" in descriptor:
+        descriptor["seed"] = random.randrange(sys.maxsize) % (2**32)
+    fitting_net = model.get("fitting_net")
+    if isinstance(fitting_net, dict) and "seed" in fitting_net:
+        fitting_net["seed"] = random.randrange(sys.maxsize) % (2**32)
+    training["seed"] = random.randrange(sys.maxsize) % (2**32)
+    create_path(mlu_task)
+    with open(os.path.join(mlu_task, default_train_input_file), "w") as fp:
+        json.dump(mlu_param, fp, indent=4)
+    dlog.info(
+        "MLU task created: %d uparam-bearing systems (%d frames total)"
+        % (len(mlu_sys), sum(get_nframes(os.path.normpath(os.path.join(probe_task, s))) for s in mlu_sys))
+    )
+
 
 def _link_old_models(work_path, old_model_files, ii, basename: str | None = None):
     """Link the `ii`th old model given by `old_model_files` to
@@ -1581,6 +1653,10 @@ def run_train_dp(iter_index, jdata, mdata):
     for ii in range(numb_models):
         task_path = os.path.join(work_path, train_task_fmt % ii)
         all_task.append(task_path)
+    # the MLU (U-predictor) task, when present, trains with the same commands
+    mlu_task_path = os.path.join(work_path, mlu_train_task_fmt)
+    if os.path.isfile(os.path.join(mlu_task_path, train_input_file)):
+        all_task.append(mlu_task_path)
     commands = []
     export_commands = []
     if Version(mdata["deepmd_version"]) >= Version("1") and Version(
@@ -1814,6 +1890,14 @@ def post_train_dp(iter_index, jdata, mdata):
         if os.path.isfile(ofile):
             os.remove(ofile)
         os.symlink(task_file, ofile)
+    # expose the frozen MLU model as 00.train/mlu_model* (NOT graph.*: the
+    # exploration stage globs graph* as committee energy models)
+    mlu_task_file = os.path.join(mlu_train_task_fmt, model_name)
+    if os.path.isfile(os.path.join(work_path, mlu_task_file)):
+        mlu_ofile = os.path.join(work_path, f"mlu_model{suffix}")
+        if os.path.isfile(mlu_ofile) or os.path.islink(mlu_ofile):
+            os.remove(mlu_ofile)
+        os.symlink(mlu_task_file, mlu_ofile)
 
 
 def _get_param_alias(jdata, names):
@@ -2207,12 +2291,14 @@ def _resolve_mlu_model_path(spec, iter_index):
     if spec != "auto":
         return os.path.abspath(spec)
     for ii in range(iter_index - 1, -1, -1):
-        pattern = os.path.join(
-            make_iter_name(ii), train_name, "task.000.mlu", "frozen_model*"
-        )
-        found = sorted(glob.glob(pattern))
-        if found:
-            return os.path.abspath(found[-1])
+        # post_train exposes the frozen MLU model as 00.train/mlu_model*
+        for pattern in (
+            os.path.join(make_iter_name(ii), train_name, "mlu_model*"),
+            os.path.join(make_iter_name(ii), train_name, mlu_train_task_fmt, "frozen_model*"),
+        ):
+            found = sorted(glob.glob(pattern))
+            if found:
+                return os.path.abspath(found[-1])
     return None
 
 
