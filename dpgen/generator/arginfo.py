@@ -32,10 +32,16 @@ def run_mdata_arginfo() -> Argument:
 def basic_args() -> list[Argument]:
     doc_type_map = "Atom types. Reminder: The elements in param.json, type.raw and data.lmp(when using lammps) should be in the same order."
     doc_mass_map = 'Standard atomic weights (default: "auto"). if one want to use isotopes, or non-standard element names, chemical symbols, or atomic number in the type_map list, please customize the mass_map list instead of using "auto".'
-    doc_use_ele_temp = "Currently only support fp_style vasp. \n\n\
+    doc_use_ele_temp = "Electron temperature handling. \n\n\
 - 0: no electron temperature. \n\n\
-- 1: eletron temperature as frame parameter. \n\n\
-- 2: electron temperature as atom parameter."
+- 1: eletron temperature as frame parameter (fparam). \n\n\
+- 2: electron temperature as atom parameter (aparam). \n\n\
+For the MLU workflow this also drives pwscf degauss and fparam/aparam writing."
+    doc_magnetic_sys_idx = (
+        "MLU workflow: indices into sys_configs of the magnetic systems. Frames "
+        "explored from these systems are labeled through the DFT+U (HP) chain and "
+        "selected separately; frames from other systems get plain scf labeling."
+    )
 
     return [
         Argument("type_map", list[str], optional=False, doc=doc_type_map),
@@ -47,6 +53,9 @@ def basic_args() -> list[Argument]:
             doc=doc_mass_map,
         ),
         Argument("use_ele_temp", int, optional=True, default=0, doc=doc_use_ele_temp),
+        Argument(
+            "magnetic_sys_idx", list[int], optional=True, doc=doc_magnetic_sys_idx
+        ),
     ]
 
 
@@ -1411,6 +1420,36 @@ def fp_style_pwscf_args() -> list[Argument]:
     doc_kspacing = "The spacing between kpoints. Helps to determin KPOINTS in pwscf."
     doc_smearing = "smearing in pwscf."
     doc_sigma = "degauss in pwscf."
+    doc_fp_hubbard = (
+        "MLU DFT+U labeling: when present, pwscf fp tasks run the Hubbard chain. "
+        "Magnetic systems (see the workflow-level `magnetic_sys_idx`) run "
+        "pw.x scf -> hp.x -> scf_new with computed U; the others run a plain scf. "
+        "Labeled frames carry uparam (frame or per-atom mode)."
+    )
+    doc_fh_element = "Element receiving the Hubbard U (default: first entry of type_map)."
+    doc_fh_manifold = "Angular momentum of the Hubbard manifold, e.g. '3d'."
+    doc_fh_u_init = "Constant U_init guess (eV) when neither MLU nor u_tp applies."
+    doc_fh_u_init_source = (
+        "U_init source: 'auto' (MLU if available, then u_tp, then u_init), "
+        "'mlu', 'tp', or 'const'."
+    )
+    doc_fh_u_tp = (
+        "Tabulated U(T,P) from the PWSCF+HP self-consistent bootstrap; a list of "
+        "{'T': K, 'P': bar, 'U': eV} entries; the nearest match is used."
+    )
+    doc_fh_uparam_mode = (
+        "Storage of the computed U in the labeled data: 'frame' -> uparam.npy "
+        "(nframes, 1) averaged; 'atomic' -> uparam.npy (nframes, natoms) per atom "
+        "via the pseudo-species layout."
+    )
+    doc_fh_nspin = "nspin for magnetic frames (default 2)."
+    doc_fh_nspin_nm = "nspin for non-magnetic frames (default 1)."
+    doc_fh_starting_mag = "starting_magnetization for the magnetic element (default 2.2)."
+    doc_fh_nq = "hp.x q-point grid (default 1 1 1, Gamma only)."
+    doc_fh_uniform_fallback = (
+        "In atomic mode, collapse per-atom U to the averaged single-species card "
+        "in the QE input (uparam.npy keeps per-atom values)."
+    )
 
     args = [
         Argument("ecut", float, optional=False, doc=doc_ecut),
@@ -1419,11 +1458,49 @@ def fp_style_pwscf_args() -> list[Argument]:
         Argument("sigma", float, optional=False, doc=doc_sigma),
         Argument("kspacing", float, optional=False, doc=doc_kspacing),
     ]
+    hubbard_args = [
+        Argument("element", str, optional=True, doc=doc_fh_element),
+        Argument("manifold", str, optional=True, default="3d", doc=doc_fh_manifold),
+        Argument("u_init", float, optional=True, default=1.0, doc=doc_fh_u_init),
+        Argument(
+            "u_init_source",
+            str,
+            optional=True,
+            default="auto",
+            doc=doc_fh_u_init_source,
+        ),
+        Argument("u_tp", list[dict], optional=True, doc=doc_fh_u_tp),
+        Argument(
+            "uparam_mode",
+            str,
+            optional=True,
+            default="frame",
+            doc=doc_fh_uparam_mode,
+        ),
+        Argument("nspin", int, optional=True, default=2, doc=doc_fh_nspin),
+        Argument("nspin_nm", int, optional=True, default=1, doc=doc_fh_nspin_nm),
+        Argument(
+            "starting_mag", float, optional=True, default=2.2, doc=doc_fh_starting_mag
+        ),
+        Argument("nq1", int, optional=True, default=1, doc=doc_fh_nq),
+        Argument("nq2", int, optional=True, default=1, doc=doc_fh_nq),
+        Argument("nq3", int, optional=True, default=1, doc=doc_fh_nq),
+        Argument(
+            "aparam_uniform_fallback",
+            bool,
+            optional=True,
+            default=False,
+            doc=doc_fh_uniform_fallback,
+        ),
+    ]
     return [
         Argument("fp_pp_path", str, optional=False, doc=doc_fp_pp_path),
         Argument("fp_pp_files", list[str], optional=False, doc=doc_fp_pp_files),
         Argument("fp_params", dict, args, [], optional=True, doc=doc_fp_params),
         Argument("user_fp_params", dict, optional=True, doc=doc_user_fp_params),
+        Argument(
+            "fp_hubbard", dict, hubbard_args, [], optional=True, doc=doc_fp_hubbard
+        ),
     ]
 
 
