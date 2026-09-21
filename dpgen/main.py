@@ -174,6 +174,16 @@ def main_parser() -> argparse.ArgumentParser:
     parser_coll.add_argument(
         "-s", "--shuffle", action="store_true", help="shuffle the data systems"
     )
+    parser_coll.add_argument(
+        "--mlu",
+        action="store_true",
+        help="MLU collection: preserve fparam/aparam/uparam, group by system index",
+    )
+    parser_coll.add_argument(
+        "--no-dedup",
+        action="store_true",
+        help="(mlu) keep duplicate frames instead of fingerprint-deduplicating",
+    )
     parser_coll.set_defaults(func=gen_collect)
 
     # simplify
