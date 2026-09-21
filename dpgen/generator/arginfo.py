@@ -1773,10 +1773,59 @@ def fp_args() -> list[Argument]:
         "If set to true, a detailed report will be generated for each iteration."
     )
     doc_ratio_failed = "Check the ratio of unsuccessfully terminated jobs. If too many FP tasks are not converged, RuntimeError will be raised."
+    doc_mlu_select_method = "Selection method inside one system: 'pca-kmeans' (default) or 'fps'."
+    doc_mlu_select_tol = "Downward refinement step in percent of the per-system frame count (default 1.0)."
+    doc_mlu_select_seed = "Random seed for PCA/KMeans/FPS reproducibility."
+    doc_mlu_select_min = "Minimum frames kept per system regardless of thresholds (default 1)."
+    doc_mlu_select_hull = "Lower bound on the fraction of selected frames inside the group's PC1-PC2 convex hull (default 0.95)."
+    doc_mlu_select_grid = "Lower bound on shared PC-grid coverage (default 0.0)."
+    doc_mlu_select_kde = "Upper bound on the KDE Jensen-Shannon divergence between full and selected PC distributions (default 0.55)."
+    doc_mlu_select_ewd = "Upper bound on the normalized energy Wasserstein distance (labeled systems only, default 0.05)."
+    doc_mlu_select_fwd = "Upper bound on the normalized force Wasserstein distance (labeled systems only, default 0.15)."
+    doc_mlu_select_vwd = "Upper bound on the normalized virial Wasserstein distance (labeled systems only, default 0.10)."
+
+    def mlu_select_args():
+        return [
+            Argument("method", str, optional=True, default="pca-kmeans",
+                     doc=doc_mlu_select_method),
+            Argument("convergence_tolerance", float, optional=True, default=1.0,
+                     doc=doc_mlu_select_tol),
+            Argument("seed", int, optional=True, default=42, doc=doc_mlu_select_seed),
+            Argument("min_select", int, optional=True, default=1,
+                     doc=doc_mlu_select_min),
+            Argument("hull_coverage", float, optional=True, default=0.95,
+                     doc=doc_mlu_select_hull),
+            Argument("grid_coverage", float, optional=True, default=0.0,
+                     doc=doc_mlu_select_grid),
+            Argument("kde_js", float, optional=True, default=0.55,
+                     doc=doc_mlu_select_kde),
+            Argument("energy_wasserstein", float, optional=True, default=0.05,
+                     doc=doc_mlu_select_ewd),
+            Argument("force_wasserstein", float, optional=True, default=0.15,
+                     doc=doc_mlu_select_fwd),
+            Argument("virial_wasserstein", float, optional=True, default=0.10,
+                     doc=doc_mlu_select_vwd),
+        ]
+
+    doc_mlu_select = textwrap.dedent(
+        """\
+        Committee descriptor-union selection (replaces trust-level selection).
+        Each committee model computes descriptors over the full pool (init
+        data + all previous iterations + current exploration), a per-system
+        convergence loop finds its minimal representative subset, and the
+        union over models minus already-labeled frames becomes the fp
+        candidate set. Magnetic and non-magnetic pools are selected
+        separately. Model deviation is recorded but never used to select.
+        Sub-keys: method ('pca-kmeans' or 'fps'), convergence_tolerance (%),
+        seed, min_select, thresholds ({hull_coverage, grid_coverage, kde_js,
+        energy_wasserstein, force_wasserstein, virial_wasserstein}).
+        """
+    )
 
     return [
         Argument("fp_task_max", int, optional=False, doc=doc_fp_task_max),
         Argument("fp_task_min", int, optional=False, doc=doc_fp_task_min),
+        Argument("mlu_select", dict, mlu_select_args(), optional=True, doc=doc_mlu_select),
         Argument(
             "fp_accurate_threshold", float, optional=True, doc=doc_fp_accurate_threshold
         ),

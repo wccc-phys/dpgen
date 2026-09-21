@@ -5597,6 +5597,67 @@ def make_fp_custom(iter_index, jdata):
             system.to(input_fmt, input_fn)
 
 
+def _make_fp_mlu_configs(iter_index, jdata, mdata):
+    """Candidate generation through the committee descriptor-union selection.
+
+    Replaces the trust-level scan of _make_fp_vasp_configs when
+    ``jdata["mlu_select"]`` is set: candidates are exploration frames that
+    entered at least one committee model's minimal representative subset and
+    are not already labeled. Task dirs mirror the standard layout
+    (task.SYS.NNNNNN with conf.dump/job.json/POSCAR) so every fp_style works.
+    """
+    from dpgen.generator.lib.mlu_select import mlu_select_fp_candidates
+
+    candidates, report = mlu_select_fp_candidates(iter_index, jdata, mdata)
+    modd_path = os.path.join(make_iter_name(iter_index), model_devi_name)
+    with open(os.path.join(modd_path, "mlu_select_report.json"), "w") as fp:
+        json.dump(report, fp, indent=2)
+    dlog.info(
+        "mlu_select: %d pool systems, %d union frames -> %d fp candidates"
+        % (
+            report.get("n_pool_systems", 0),
+            report.get("n_union_frames", 0),
+            len(candidates),
+        )
+    )
+    if not candidates:
+        return []
+
+    fp_task_max = jdata["fp_task_max"]
+    type_map = jdata["type_map"]
+    work_path = os.path.join(make_iter_name(iter_index), fp_name)
+    create_path(work_path)
+    fp_tasks = []
+    counter = {}
+    cwd = os.getcwd()
+    for cand in candidates[:fp_task_max]:
+        sys_idx = cand["sys_idx"]
+        cc = counter.get(sys_idx, 0)
+        counter[sys_idx] = cc + 1
+        task_path = os.path.join(work_path, make_fp_task_name(sys_idx, cc))
+        create_path(task_path)
+        os.chdir(task_path)
+        modd_task = cand["task"]
+        # single-frame conf.dump + POSCAR from the exploration trajectory
+        frame_sys = dpdata.System(
+            os.path.join(modd_task, "all.lammpstrj")
+            if os.path.exists(os.path.join(modd_task, "all.lammpstrj"))
+            else sorted(glob.glob(os.path.join(modd_task, "traj", "*.lammpstrj")))[0],
+            fmt="lammps/dump",
+            type_map=type_map,
+        )
+        sub = frame_sys[cand["frame"] : cand["frame"] + 1]
+        sub.to("lammps/dump", "conf.dump")
+        sub.to_vasp_poscar("POSCAR")
+        job_src = os.path.join(modd_task, "job.json")
+        if os.path.exists(job_src):
+            os.symlink(os.path.relpath(job_src), "job.json")
+        os.chdir(cwd)
+        fp_tasks.append(task_path)
+    # group summary by source system
+    return fp_tasks
+
+
 def make_fp(iter_index, jdata, mdata):
     """Select the candidate strutures and make the input file of FP calculation.
 
@@ -5609,7 +5670,11 @@ def make_fp(iter_index, jdata, mdata):
     mdata : dict
         Machine parameters.
     """
-    fp_tasks = _make_fp_vasp_configs(iter_index, jdata)
+    fp_tasks = (
+        _make_fp_mlu_configs(iter_index, jdata, mdata)
+        if jdata.get("mlu_select")
+        else _make_fp_vasp_configs(iter_index, jdata)
+    )
     if len(fp_tasks) == 0:
         return
     make_fp_calculation(iter_index, jdata, mdata)
