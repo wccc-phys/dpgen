@@ -49,6 +49,16 @@ def make_lammps_input(
         raise RuntimeError(
             "the frame style ele_temp and atom style ele_temp should not be set at the same time"
         )
+    # Hubbard U passed to the DP+U model. Either a constant frame value or an
+    # MLU model that predicts U at every step; requires the deepmd-kit fork's
+    # LAMMPS build (pair_style deepmd keywords `uparam` / `mlu_model`).
+    lmp_uparam = jdata.get("lmp_uparam")
+    lmp_mlu_model = jdata.get("lmp_mlu_model")
+    if lmp_uparam is not None and lmp_mlu_model is not None:
+        raise RuntimeError(
+            "lmp_uparam and lmp_mlu_model are mutually exclusive: "
+            "the pair_style keyword `uparam` cannot be combined with `mlu_model`"
+        )
     ret = "variable        NSTEPS          equal %d\n" % nsteps  # noqa: UP031
     if nbeads is not None:
         if nbeads <= 0:
@@ -132,9 +142,13 @@ def make_lammps_input(
         if jdata.get("use_relative_v", False):
             keywords += "relative_v {} ".format(jdata["epsilon_v"])
         if ele_temp_f is not None:
-            keywords += "fparam ${ELE_TEMP}"
+            keywords += "fparam ${ELE_TEMP} "
         if ele_temp_a is not None:
-            keywords += "aparam ${ELE_TEMP}"
+            keywords += "aparam ${ELE_TEMP} "
+        if lmp_uparam is not None:
+            keywords += f"uparam {float(lmp_uparam):f} "
+        if lmp_mlu_model is not None:
+            keywords += f"mlu_model {lmp_mlu_model} "
 
         if d3_enabled:
             # Use hybrid/overlay with D3
@@ -218,6 +232,13 @@ def make_lammps_input(
             ret += "fix             1 all npt temp ${TEMP} ${TEMP} ${TAU_T} aniso ${PRES} ${PRES} ${TAU_P}\n"
         elif ensemble == "npt-t" or ensemble == "npt-tri":
             ret += "fix             1 all npt temp ${TEMP} ${TEMP} ${TAU_T} tri ${PRES} ${PRES} ${TAU_P}\n"
+        elif ensemble in ("npt-x", "npt-y", "npt-z"):
+            # uniaxial compression: barostat coupled to a single Cartesian axis
+            axis = ensemble.split("-")[1]
+            ret += (
+                "fix             1 all npt temp ${TEMP} ${TEMP} ${TAU_T} "
+                + f"{axis} ${{PRES}} ${{PRES}} ${{TAU_P}}\n"
+            )
         elif ensemble == "nvt":
             ret += "fix             1 all nvt temp ${TEMP} ${TEMP} ${TAU_T}\n"
         elif ensemble == "nve":

@@ -335,7 +335,7 @@ def model_devi_jobs_args() -> list[Argument]:
     doc_trj_freq = "Frequecy of trajectory saved in MD."
     doc_nsteps = "Running steps of MD. It is not optional when not using a template."
     doc_nbeads = "Number of beads in PIMD. If not given, classical MD will be performed. Only supported for LAMMPS version >= 20230615."
-    doc_ensemble = "Determining which ensemble used in MD, options include “npt” and “nvt”. It is not optional when not using a template."
+    doc_ensemble = "Determining which ensemble used in MD, options include “npt”, “nvt”, “nve”, “npt-i”/“npt-iso”, “npt-a”/“npt-aniso”, “npt-t”/“npt-tri”, and the uniaxial “npt-x”, “npt-y”, “npt-z” (barostat coupled to a single Cartesian axis). It is not optional when not using a template."
     doc_dt = "Timestep for this MD job. Overrides the workflow-wide model_devi_dt."
     doc_neidelay = "delay building until this many steps since last build."
     doc_taut = "Coupling time of thermostat (ps)."
@@ -344,6 +344,17 @@ def model_devi_jobs_args() -> list[Argument]:
     doc_model_devi_f_trust_hi = "Upper bound of forces for the selection. If dict, should be set for each index in sys_idx, respectively."
     doc_model_devi_v_trust_lo = "Lower bound of virial for the selection. If dict, should be set for each index in sys_idx, respectively. Should be used with DeePMD-kit v2 or above."
     doc_model_devi_v_trust_hi = "Upper bound of virial for the selection. If dict, should be set for each index in sys_idx, respectively. Should be used with DeePMD-kit v2 or above."
+    doc_job_lmp_uparam = (
+        "Constant Hubbard U (eV) passed to DP+U models during exploration, "
+        "emitted as the `uparam` keyword of `pair_style deepmd`. "
+        "Mutually exclusive with mlu_model. Requires the deepmd-kit fork's LAMMPS build."
+    )
+    doc_job_mlu_model = (
+        "MLU (U-predictor) model used to predict U on the fly during exploration, "
+        "emitted as the `mlu_model` keyword of `pair_style deepmd`. "
+        "Either an explicit path or 'auto' to use the newest frozen MLU model from "
+        "finished iterations. Mutually exclusive with lmp_uparam."
+    )
 
     args = [
         model_devi_jobs_template_args(),
@@ -360,6 +371,8 @@ def model_devi_jobs_args() -> list[Argument]:
         Argument("neidelay", int, optional=True, doc=doc_neidelay),
         Argument("taut", float, optional=True, doc=doc_taut),
         Argument("taup", float, optional=True, doc=doc_taup),
+        Argument("lmp_uparam", float, optional=True, doc=doc_job_lmp_uparam),
+        Argument("mlu_model", str, optional=True, doc=doc_job_mlu_model),
         Argument(
             "model_devi_f_trust_lo",
             [float, dict],
@@ -431,6 +444,18 @@ The union of the two sets is made as candidate dataset."
     doc_lmp_d3_cutoff = "Cutoff radius for D3 dispersion (in Angstrom)."
     doc_lmp_d3_cn_cutoff = "Coordination number cutoff for D3 dispersion (in Angstrom)."
     doc_lmp_neigh_modify_one = "Maximum number of neighbors of one atom for 'neigh_modify one N' command. Helps with D3 compatibility."
+    doc_lmp_uparam = (
+        "Workflow-wide constant Hubbard U (eV) for DP+U models during exploration, "
+        "emitted as the `uparam` keyword of `pair_style deepmd`. Overridable per "
+        "model_devi_jobs entry. Mutually exclusive with mlu_model. "
+        "Requires the deepmd-kit fork's LAMMPS build."
+    )
+    doc_mlu_model = (
+        "Workflow-wide MLU (U-predictor) model that predicts U on the fly during "
+        "exploration (`mlu_model` keyword of `pair_style deepmd`). Either an explicit "
+        "path or 'auto' for the newest frozen MLU model from finished iterations. "
+        "Overridable per model_devi_jobs entry."
+    )
 
     return [
         model_devi_jobs_args(),
@@ -518,6 +543,18 @@ The union of the two sets is made as candidate dataset."
             optional=True,
             default=False,
             doc=doc_model_devi_nopbc,
+        ),
+        Argument(
+            "lmp_uparam",
+            float,
+            optional=True,
+            doc=doc_lmp_uparam,
+        ),
+        Argument(
+            "mlu_model",
+            str,
+            optional=True,
+            doc=doc_mlu_model,
         ),
         Argument(
             "model_devi_plumed",

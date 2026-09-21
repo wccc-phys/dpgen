@@ -2183,6 +2183,38 @@ def revise_by_keys(lmp_lines, keys, values):
     return lmp_lines
 
 
+def _resolve_mlu_model_path(spec, iter_index):
+    """Resolve the MLU (U-predictor) model location for an exploration run.
+
+    Parameters
+    ----------
+    spec : str or None
+        Either an explicit path to a frozen MLU model, or the literal
+        ``"auto"`` to search completed iterations (newest first) for the MLU
+        training task output ``iter.*/00.train/task.000.mlu/frozen_model*``.
+    iter_index : int
+        Current iteration index; ``auto`` never resolves to the current
+        (not yet trained) iteration.
+
+    Returns
+    -------
+    str or None
+        Absolute path to the frozen MLU model, or None when spec is None.
+    """
+    if spec is None:
+        return None
+    if spec != "auto":
+        return os.path.abspath(spec)
+    for ii in range(iter_index - 1, -1, -1):
+        pattern = os.path.join(
+            make_iter_name(ii), train_name, "task.000.mlu", "frozen_model*"
+        )
+        found = sorted(glob.glob(pattern))
+        if found:
+            return os.path.abspath(found[-1])
+    return None
+
+
 def make_model_devi(iter_index, jdata, mdata):
     # The MD engine to perform model deviation
     # Default is lammps
@@ -2326,6 +2358,29 @@ def make_model_devi(iter_index, jdata, mdata):
                 models_path = os.path.join(temp_calypso_run_opt_path, model_name)
                 if not os.path.exists(models_path):
                     os.symlink(mm, models_path)
+
+    # MLU (U-predictor) model: per-job `mlu_model` overrides the workflow-wide
+    # setting; "auto" picks the newest frozen MLU model from finished iterations.
+    # The resolved file is linked into 01.model_devi/ next to the DP graphs so
+    # every task can reference it as `../<name>` in `pair_style deepmd ... mlu_model`.
+    if model_devi_engine == "lammps":
+        mlu_spec = cur_job.get("mlu_model", jdata.get("mlu_model"))
+        mlu_path = _resolve_mlu_model_path(mlu_spec, iter_index)
+        if mlu_path is not None:
+            mlu_name = os.path.basename(mlu_path)
+            mlu_link = os.path.join(work_path, mlu_name)
+            if not os.path.exists(mlu_link):
+                os.symlink(mlu_path, mlu_link)
+            jdata["lmp_mlu_model"] = f"../{mlu_name}"
+            dlog.info(f"exploration will predict U on the fly with MLU model {mlu_name}")
+        elif jdata.get("lmp_uparam") is None and cur_job.get("lmp_uparam") is None:
+            # no U source configured; a DP+U committee without default_uparam
+            # would fail in LAMMPS, so surface this early
+            dlog.warning(
+                "no MLU model resolved and no lmp_uparam set; "
+                "DP+U models must either define default_uparam or receive "
+                "`mlu_model`/`lmp_uparam` for exploration"
+            )
 
     with open(os.path.join(work_path, "cur_job.json"), "w") as outfile:
         json.dump(cur_job, outfile, indent=4)
@@ -2752,7 +2807,17 @@ def _make_model_devi_native(iter_index, jdata, mdata, conf_systems):
                         trj_freq,
                         mass_map,
                         tt,
-                        jdata={**jdata, "model_format": suffix[1:]},
+                        jdata={
+                            **jdata,
+                            "model_format": suffix[1:],
+                            # per-job U source overrides the workflow default;
+                            # lmp_mlu_model was already resolved by make_model_devi
+                            **{
+                                k: cur_job[k]
+                                for k in ("lmp_uparam",)
+                                if cur_job.get(k) is not None
+                            },
+                        },
                         tau_t=model_devi_taut,
                         pres=pp,
                         tau_p=model_devi_taup,
