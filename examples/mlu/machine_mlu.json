@@ -1,0 +1,47 @@
+{
+  "_comment": "Machine profile for the MLU workflow: DP training + LAMMPS exploration locally (deepmd-kit fork venv + fork-built lmp), QE labeling on the SLURM cluster. Adjust paths/partitions to your platform.",
+
+  "train": {
+    "machine_type": "shell",
+    "command": "/opt/deepmd-kit-fork/venv/bin/dp",
+    "resources": {
+      "number_node": 1,
+      "cpu_per_node": 16,
+      "group_size": 1,
+      "source_list": []
+    }
+  },
+
+  "model_devi": {
+    "machine_type": "shell",
+    "command": "/opt/deepmd-kit-fork/bin/lmp",
+    "resources": {
+      "number_node": 1,
+      "cpu_per_node": 16,
+      "group_size": 1
+    },
+    "_comment_lmp": "must be the LAMMPS built from the deepmd-kit fork (uparam/mlu_model keywords; see .devcontainer/build_cxx_mlu.sh)"
+  },
+
+  "fp": {
+    "machine_type": "slurm",
+    "hostname": "cluster.example.org",
+    "username": "user",
+    "port": 22,
+    "fp_command": "bash run.sh",
+    "fp_pw_command": "mpirun -np 96 pw.x -nk 8 -pd .true.",
+    "fp_hp_command": "mpirun -np 96 hp.x -pd .true.",
+    "work_path": "/data/home/user/dpgen-mlu",
+    "_comment_remote": "python3 with numpy must exist on the compute nodes (mlu_frame.py / uinit_loop.py run there)",
+    "resources": {
+      "number_node": 1,
+      "cpu_per_node": 96,
+      "group_size": 8,
+      "partition": "nudt96c",
+      "job_name": "mlu-fp",
+      "module_list": ["oneapi/2023.2", "qe/7.4.1-intel"],
+      "source_list": [],
+      "env_list": []
+    }
+  }
+}

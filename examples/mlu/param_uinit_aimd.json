@@ -1,0 +1,63 @@
+{
+  "_comment": "Init pipeline example: self-consistent U(T,P) bootstrap + AIMD coarse sampling + MSD picking. Three param files' keys are shown in one file; use the relevant subset for each dpgen mlu subcommand.",
+
+  "type_map": ["Fe"],
+  "mass_map": [55.845],
+  "fp_pp_files": ["Fe.pbe-spn-kjpaw_psl.1.0.0.UPF"],
+
+  "uinit": {
+    "points": [
+      {"T": 300,  "P": 1.0,      "structure": "structures/bcc-2x2x2.POSCAR"},
+      {"T": 1000, "P": 1.0,      "structure": "structures/bcc-2x2x2.POSCAR"},
+      {"T": 300,  "P": 50000.0,  "structure": "structures/bcc-2x2x2.POSCAR"},
+      {"T": 1000, "P": 50000.0,  "structure": "structures/bcc-2x2x2.POSCAR"}
+    ],
+    "element": "Fe",
+    "manifold": "3d",
+    "u0": 1.0,
+    "tol": 0.02,
+    "max_iter": 5,
+    "ecutwfc": 80,
+    "ecutrho": 400,
+    "kspacing": 0.6,
+    "nspin": 2,
+    "starting_mag": 2.2,
+    "nq1": 1, "nq2": 1, "nq3": 1,
+    "npt": true
+  },
+
+  "aimd": {
+    "element": "Fe",
+    "manifold": "3d",
+    "ecutwfc": 80,
+    "ecutrho": 400,
+    "kspacing": 0.6,
+    "thermostat": "nose-hoover",
+    "u0": 3.6,
+    "starting_mag": 2.2,
+    "u_tp": [
+      {"T": 300, "P": 1.0, "U": 3.8081},
+      {"T": 1000, "P": 1.0, "U": 3.6209},
+      {"T": 300, "P": 50000.0, "U": 3.8120},
+      {"T": 1000, "P": 50000.0, "U": 3.5078}
+    ],
+    "regions": [
+      {"name": "bcc", "structure": "structures/bcc-2x2x2.POSCAR",
+       "T": [300, 1000], "P": [1.0, 50000.0], "ensemble": "npt",
+       "magnetic": true, "nsteps": 500, "dt_fs": 1.0},
+      {"name": "hcp", "structure": "structures/hcp-2x2x2.POSCAR",
+       "T": [300, 1000], "P": [100000.0, 500000.0], "ensemble": "npt",
+       "magnetic": true, "nsteps": 500, "dt_fs": 1.0},
+      {"name": "liq", "structure": "structures/liq-64.POSCAR",
+       "T": [2000, 3000, 5000], "P": [1.0, 50000.0], "ensemble": "npt",
+       "magnetic": false, "nsteps": 500, "dt_fs": 1.0}
+    ]
+  },
+
+  "msd_pick": {
+    "traj_glob": "aimd/*/*/pw.md.out",
+    "budget": 200,
+    "skip": 10,
+    "out_dir": "init_data"
+  }
+}
