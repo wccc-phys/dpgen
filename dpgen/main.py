@@ -183,6 +183,11 @@ def main_parser() -> argparse.ArgumentParser:
     parser_run.add_argument("-d", "--debug", action="store_true", help="log debug info")
     parser_run.set_defaults(func=gen_simplify)
 
+    # mlu init pipeline
+    from dpgen.mlu.run import mlu_parser
+
+    mlu_parser(subparsers)
+
     # test
     parser_test = subparsers.add_parser(
         "autotest", help="Auto-test for Deep Potential."
